@@ -27,6 +27,8 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
+    QSplitter,
     QSpinBox,
     QTextEdit,
     QVBoxLayout,
@@ -197,6 +199,7 @@ class MapViewerWindow(QWidget):
         self.start_actor: vtk.vtkActor | None = None
         self.goal_actor: vtk.vtkActor | None = None
         self.robot_actor: vtk.vtkActor | None = None
+        self._data_loaded_once = False
         self._build_ui()
         self._setup_vtk()
         self.timer = QTimer(self)
@@ -205,9 +208,10 @@ class MapViewerWindow(QWidget):
 
     def _build_ui(self) -> None:
         self.setWindowTitle("ROS1 Map Viewer GUI")
-        self.resize(1280, 860)
+        self.resize(1460, 900)
         layout = QHBoxLayout(self)
         left = QVBoxLayout()
+        left.setSpacing(10)
 
         map_group = QGroupBox("Map Package")
         map_layout = QVBoxLayout(map_group)
@@ -230,6 +234,33 @@ class MapViewerWindow(QWidget):
         button_row.addWidget(save_btn)
         map_layout.addLayout(button_row)
         left.addWidget(map_group)
+
+        view_group = QGroupBox("View Controls")
+        view_layout = QVBoxLayout(view_group)
+        view_row_1 = QHBoxLayout()
+        fit_btn = QPushButton("Fit map")
+        fit_btn.clicked.connect(self._fit_camera_to_scene)
+        top_btn = QPushButton("Top")
+        top_btn.clicked.connect(lambda: self._set_camera_view("top"))
+        front_btn = QPushButton("Front")
+        front_btn.clicked.connect(lambda: self._set_camera_view("front"))
+        side_btn = QPushButton("Side")
+        side_btn.clicked.connect(lambda: self._set_camera_view("side"))
+        view_row_1.addWidget(fit_btn)
+        view_row_1.addWidget(top_btn)
+        view_row_1.addWidget(front_btn)
+        view_row_1.addWidget(side_btn)
+        view_layout.addLayout(view_row_1)
+        self.stats_label = QLabel("No map loaded yet")
+        self.stats_label.setWordWrap(True)
+        view_layout.addWidget(self.stats_label)
+        help_label = QLabel(
+            "Mouse: left drag rotate, middle drag pan, wheel zoom. "
+            "Pick a mode first, then click voxels in the 3D view."
+        )
+        help_label.setWordWrap(True)
+        view_layout.addWidget(help_label)
+        left.addWidget(view_group)
 
         display_group = QGroupBox("Layer Display")
         display_layout = QVBoxLayout(display_group)
@@ -290,25 +321,40 @@ class MapViewerWindow(QWidget):
 
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
+        self.log_view.setMinimumHeight(140)
         left.addWidget(self.log_view, 1)
 
         left_widget = QWidget()
         left_widget.setLayout(left)
-        left_widget.setMaximumWidth(360)
-        layout.addWidget(left_widget)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setWidget(left_widget)
 
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(left_scroll)
         self.vtk_widget = QVTKRenderWindowInteractor(self)
-        layout.addWidget(self.vtk_widget, 1)
+        splitter.addWidget(self.vtk_widget)
+        splitter.setSizes([360, 1100])
+        layout.addWidget(splitter)
 
     def _setup_vtk(self) -> None:
         self.renderer = vtk.vtkRenderer()
         self.renderer.SetBackground(0.07, 0.09, 0.11)
         self.vtk_widget.GetRenderWindow().AddRenderer(self.renderer)
         self.interactor = self.vtk_widget.GetRenderWindow().GetInteractor()
+        self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
         self.interactor.AddObserver("LeftButtonPressEvent", self._on_left_click)
         self.interactor.Initialize()
-        axes = vtk.vtkAxesActor()
-        self.renderer.AddActor(axes)
+        self.axes_actor = vtk.vtkAxesActor()
+        self.axes_actor.SetTotalLength(1.2, 1.2, 1.2)
+        self.axes_actor.AxisLabelsOn()
+        self.orientation_widget = vtk.vtkOrientationMarkerWidget()
+        self.orientation_widget.SetOrientationMarker(self.axes_actor)
+        self.orientation_widget.SetInteractor(self.interactor)
+        self.orientation_widget.SetViewport(0.0, 0.0, 0.16, 0.16)
+        self.orientation_widget.EnabledOn()
+        self.orientation_widget.InteractiveOff()
         self.renderer.ResetCamera()
 
     def log(self, text: str) -> None:
@@ -331,6 +377,8 @@ class MapViewerWindow(QWidget):
         self.log(message)
         if not ok:
             QMessageBox.warning(self, "Load failed", message)
+        else:
+            self._data_loaded_once = False
 
     def _save_package(self) -> None:
         directory = self.path_edit.text().strip()
@@ -350,6 +398,7 @@ class MapViewerWindow(QWidget):
         for layer_name in ("occupied", "preblocked", "traversable"):
             self.bridge.publish_layer(layer_name, self.layer_points[layer_name], self.layer_scale[layer_name])
         self.log("Republished current layers")
+        self._data_loaded_once = False
 
     def _set_pick_mode(self, mode: str) -> None:
         self.pick_mode = mode
@@ -368,6 +417,7 @@ class MapViewerWindow(QWidget):
             self.layer_scale["traversable"] = traversable_scale
             self.bridge.dirty = False
             self._render_layers()
+            self._update_stats()
         if self.bridge.path_dirty:
             self.path_points = list(self.bridge.latest_path)
             self.bridge.path_dirty = False
@@ -377,6 +427,7 @@ class MapViewerWindow(QWidget):
             self._render_robot(robot_pose[0])
 
     def _render_layers(self) -> None:
+        loaded_any = False
         for layer_name in ("occupied", "preblocked", "traversable"):
             actor = self.actors.get(layer_name)
             if actor is not None:
@@ -385,6 +436,7 @@ class MapViewerWindow(QWidget):
             if points.size == 0 or not self.checkboxes[layer_name].isChecked():
                 self.actors[layer_name] = None
                 continue
+            loaded_any = True
             color = {
                 "occupied": (0.95, 0.45, 0.15),
                 "preblocked": (0.15, 0.35, 1.0),
@@ -394,6 +446,9 @@ class MapViewerWindow(QWidget):
             actor = self._build_cube_actor(points, self.layer_scale[layer_name], color, opacity)
             self.actors[layer_name] = actor
             self.renderer.AddActor(actor)
+        if loaded_any and not self._data_loaded_once:
+            self._fit_camera_to_scene()
+            self._data_loaded_once = True
         self.vtk_widget.GetRenderWindow().Render()
 
     def _build_cube_actor(self, points: np.ndarray, scale: np.ndarray, color: tuple[float, float, float], opacity: float) -> vtk.vtkActor:
@@ -467,6 +522,71 @@ class MapViewerWindow(QWidget):
 
     def _render_robot(self, xyz: tuple[float, float, float]) -> None:
         self._render_sphere("robot", xyz, (0.0, 0.9, 1.0))
+
+    def _scene_bounds(self) -> tuple[float, float, float, float, float, float] | None:
+        layers = [points for points in self.layer_points.values() if points.size]
+        if not layers:
+            return None
+        merged = np.vstack(layers)
+        min_xyz = merged.min(axis=0)
+        max_xyz = merged.max(axis=0)
+        return (
+            float(min_xyz[0]),
+            float(max_xyz[0]),
+            float(min_xyz[1]),
+            float(max_xyz[1]),
+            float(min_xyz[2]),
+            float(max_xyz[2]),
+        )
+
+    def _fit_camera_to_scene(self) -> None:
+        bounds = self._scene_bounds()
+        if bounds is None:
+            return
+        self.renderer.ResetCamera(bounds)
+        self.vtk_widget.GetRenderWindow().Render()
+
+    def _set_camera_view(self, view_name: str) -> None:
+        bounds = self._scene_bounds()
+        if bounds is None:
+            return
+        center = (
+            (bounds[0] + bounds[1]) * 0.5,
+            (bounds[2] + bounds[3]) * 0.5,
+            (bounds[4] + bounds[5]) * 0.5,
+        )
+        span = max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4], 1.0)
+        camera = self.renderer.GetActiveCamera()
+        if view_name == "top":
+            camera.SetPosition(center[0], center[1], center[2] + span * 2.2)
+            camera.SetViewUp(0.0, 1.0, 0.0)
+        elif view_name == "front":
+            camera.SetPosition(center[0], center[1] - span * 2.2, center[2] + span * 0.4)
+            camera.SetViewUp(0.0, 0.0, 1.0)
+        else:
+            camera.SetPosition(center[0] + span * 2.2, center[1], center[2] + span * 0.4)
+            camera.SetViewUp(0.0, 0.0, 1.0)
+        camera.SetFocalPoint(*center)
+        self.renderer.ResetCameraClippingRange()
+        self.vtk_widget.GetRenderWindow().Render()
+
+    def _update_stats(self) -> None:
+        occupied_count = int(self.layer_points["occupied"].shape[0])
+        preblocked_count = int(self.layer_points["preblocked"].shape[0])
+        traversable_count = int(self.layer_points["traversable"].shape[0])
+        resolution = float(self.layer_scale["occupied"][0] or 0.2)
+        bounds = self._scene_bounds()
+        if bounds is None:
+            self.stats_label.setText("No voxel layers loaded yet")
+            return
+        span_x = bounds[1] - bounds[0]
+        span_y = bounds[3] - bounds[2]
+        span_z = bounds[5] - bounds[4]
+        self.stats_label.setText(
+            f"Voxel size: {resolution:.2f} m | "
+            f"Occupied: {occupied_count:,} | Preblocked: {preblocked_count:,} | Traversable: {traversable_count:,}\n"
+            f"Bounds: {span_x:.2f} x {span_y:.2f} x {span_z:.2f} m"
+        )
 
     def _on_left_click(self, _obj, _event) -> None:
         click_pos = self.interactor.GetEventPosition()

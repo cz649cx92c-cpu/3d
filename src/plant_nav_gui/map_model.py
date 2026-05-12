@@ -185,6 +185,8 @@ def load_ascii_pcd_projection(
 ) -> MapState:
     pcd_path = Path(pcd_path).expanduser().resolve()
     header_done = False
+    fields: list[str] = []
+    x_idx = y_idx = z_idx = None
     points: list[tuple[float, float, float]] = []
     with pcd_path.open("r", encoding="utf-8", errors="ignore") as handle:
         for line in handle:
@@ -192,15 +194,26 @@ def load_ascii_pcd_projection(
             if not line:
                 continue
             if not header_done:
+                if line.upper().startswith("FIELDS "):
+                    fields = line.split()[1:]
+                    lower_fields = [field.lower() for field in fields]
+                    try:
+                        x_idx = lower_fields.index("x")
+                        y_idx = lower_fields.index("y")
+                        z_idx = lower_fields.index("z")
+                    except ValueError as exc:
+                        raise ValueError("PCD header does not define x/y/z fields.") from exc
                 if line.upper().startswith("DATA"):
                     if "ascii" not in line.lower():
                         raise ValueError("Only ASCII PCD is supported right now. Convert binary PCD first.")
+                    if x_idx is None or y_idx is None or z_idx is None:
+                        raise ValueError("PCD header is missing usable x/y/z field indices.")
                     header_done = True
                 continue
             parts = line.split()
-            if len(parts) < 3:
+            if len(parts) <= max(x_idx, y_idx, z_idx):
                 continue
-            points.append((float(parts[0]), float(parts[1]), float(parts[2])))
+            points.append((float(parts[x_idx]), float(parts[y_idx]), float(parts[z_idx])))
     if not points:
         raise ValueError("No usable points were found in the PCD file.")
 

@@ -3,6 +3,8 @@
   <arg name="voxel_downsample_m" default="0.1" />
   <arg name="min_points_per_voxel" default="2" />
   <arg name="min_cluster_voxels" default="2" />
+  <arg name="outer_shell_layers" default="0" />
+  <arg name="max_occupied_voxels" default="300000" />
   <arg name="frame_id" default="map" />
 
   <node pkg="jie_octomap" type="pcd_to_octomap_node.py" name="pcd_to_octomap" output="screen">
@@ -11,6 +13,8 @@
     <param name="voxel_downsample_m" value="$(arg voxel_downsample_m)" />
     <param name="min_points_per_voxel" value="$(arg min_points_per_voxel)" />
     <param name="min_cluster_voxels" value="$(arg min_cluster_voxels)" />
+    <param name="outer_shell_layers" value="$(arg outer_shell_layers)" />
+    <param name="max_occupied_voxels" value="$(arg max_occupied_voxels)" />
   </node>
 
   <node pkg="jie_octomap" type="octomap_to_occupied_markers_node.py" name="octomap_to_occupied_markers" output="screen" />

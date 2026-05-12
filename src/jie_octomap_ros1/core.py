@@ -18,6 +18,8 @@ from visualization_msgs.msg import Marker
 def read_ascii_pcd_points(pcd_path: str | Path) -> np.ndarray:
     pcd_path = Path(pcd_path).expanduser().resolve()
     header_done = False
+    fields: list[str] = []
+    x_idx = y_idx = z_idx = None
     points: list[tuple[float, float, float]] = []
     with pcd_path.open("r", encoding="utf-8", errors="ignore") as handle:
         for line in handle:
@@ -25,15 +27,26 @@ def read_ascii_pcd_points(pcd_path: str | Path) -> np.ndarray:
             if not line:
                 continue
             if not header_done:
+                if line.upper().startswith("FIELDS "):
+                    fields = line.split()[1:]
+                    lower_fields = [field.lower() for field in fields]
+                    try:
+                        x_idx = lower_fields.index("x")
+                        y_idx = lower_fields.index("y")
+                        z_idx = lower_fields.index("z")
+                    except ValueError as exc:
+                        raise ValueError("PCD header does not define x/y/z fields.") from exc
                 if line.upper().startswith("DATA"):
                     if "ascii" not in line.lower():
                         raise ValueError("Only ASCII PCD is supported right now. Convert binary PCD first.")
+                    if x_idx is None or y_idx is None or z_idx is None:
+                        raise ValueError("PCD header is missing usable x/y/z field indices.")
                     header_done = True
                 continue
             parts = line.split()
-            if len(parts) < 3:
+            if len(parts) <= max(x_idx, y_idx, z_idx):
                 continue
-            points.append((float(parts[0]), float(parts[1]), float(parts[2])))
+            points.append((float(parts[x_idx]), float(parts[y_idx]), float(parts[z_idx])))
     if not points:
         raise ValueError("No usable points were found in the PCD file.")
     return np.asarray(points, dtype=np.float32)
@@ -45,11 +58,20 @@ def voxelize_points(
     voxel_downsample_m: float,
     min_points_per_voxel: int,
     min_cluster_voxels: int,
+    outer_shell_layers: int = 0,
+    z_min: float | None = None,
+    z_max: float | None = None,
 ) -> np.ndarray:
     if points.size == 0:
         return np.empty((0, 3), dtype=np.float32)
 
     working = points
+    if z_min is not None:
+        working = working[working[:, 2] >= float(z_min)]
+    if z_max is not None:
+        working = working[working[:, 2] <= float(z_max)]
+    if working.size == 0:
+        return np.empty((0, 3), dtype=np.float32)
     if voxel_downsample_m > 0.0:
         buckets: dict[tuple[int, int, int], np.ndarray] = {}
         for point in working:
@@ -97,6 +119,22 @@ def voxelize_points(
 
     if not occupied:
         return np.empty((0, 3), dtype=np.float32)
+
+    if outer_shell_layers > 0:
+        min_x = min(key[0] for key in occupied)
+        max_x = max(key[0] for key in occupied)
+        min_y = min(key[1] for key in occupied)
+        max_y = max(key[1] for key in occupied)
+        trimmed = {
+            key
+            for key in occupied
+            if (key[0] - min_x) >= outer_shell_layers
+            and (max_x - key[0]) >= outer_shell_layers
+            and (key[1] - min_y) >= outer_shell_layers
+            and (max_y - key[1]) >= outer_shell_layers
+        }
+        if trimmed:
+            occupied = trimmed
 
     centers = [
         ((vx + 0.5) * resolution, (vy + 0.5) * resolution, (vz + 0.5) * resolution)

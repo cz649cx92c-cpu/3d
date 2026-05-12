@@ -37,6 +37,35 @@ source devel/setup.bash
 roslaunch jie_octomap import_pcd_map.launch
 ```
 
+导入链现在默认带有体素安全上限：
+
+```bash
+max_occupied_voxels:=300000
+```
+
+如果终端提示体素数超过安全上限，不要继续硬跑，优先把参数调粗一些，例如：
+
+```bash
+roslaunch jie_octomap import_pcd_map.launch \
+  resolution:=1.0 \
+  voxel_downsample_m:=0.5 \
+  min_points_per_voxel:=2 \
+  min_cluster_voxels:=20
+```
+
+如果房间最外围墙壳太挡视线，可以额外剥掉最外层边界体素：
+
+```bash
+roslaunch jie_octomap import_pcd_map.launch \
+  resolution:=0.5 \
+  voxel_downsample_m:=0.3 \
+  min_points_per_voxel:=1 \
+  min_cluster_voxels:=1 \
+  outer_shell_layers:=1
+```
+
+把 `outer_shell_layers` 调成 `2` 或 `3`，就会继续向里多剥几层。
+
 这一步会启动：
 
 - `pcd_to_octomap`
