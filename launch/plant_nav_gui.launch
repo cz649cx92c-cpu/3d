@@ -1,0 +1,3 @@
+<launch>
+  <node pkg="plant_nav_gui" type="plant_nav_gui.py" name="plant_nav_gui" output="screen"/>
+</launch>

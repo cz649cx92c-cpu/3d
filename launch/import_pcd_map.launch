@@ -1,0 +1,21 @@
+<launch>
+  <arg name="resolution" default="0.2" />
+  <arg name="voxel_downsample_m" default="0.1" />
+  <arg name="min_points_per_voxel" default="2" />
+  <arg name="min_cluster_voxels" default="2" />
+  <arg name="frame_id" default="map" />
+
+  <node pkg="jie_octomap" type="pcd_to_octomap_node.py" name="pcd_to_octomap" output="screen">
+    <param name="frame_id" value="$(arg frame_id)" />
+    <param name="resolution" value="$(arg resolution)" />
+    <param name="voxel_downsample_m" value="$(arg voxel_downsample_m)" />
+    <param name="min_points_per_voxel" value="$(arg min_points_per_voxel)" />
+    <param name="min_cluster_voxels" value="$(arg min_cluster_voxels)" />
+  </node>
+
+  <node pkg="jie_octomap" type="octomap_to_occupied_markers_node.py" name="octomap_to_occupied_markers" output="screen" />
+  <node pkg="jie_octomap" type="map_package_manager.py" name="map_package_manager" output="screen">
+    <param name="resolution" value="$(arg resolution)" />
+  </node>
+  <node pkg="jie_octomap" type="pcd_map_import_gui.py" name="pcd_map_import_gui" output="screen" />
+</launch>

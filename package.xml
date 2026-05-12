@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>jie_octomap</name>
+  <version>0.1.0</version>
+  <description>ROS1-adapted local port of jie_3d_nav map import, package management, and VTK map viewer workflows.</description>
+
+  <maintainer email="codex@example.com">Codex</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>message_generation</buildtool_depend>
+
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>octomap_msgs</depend>
+  <depend>rospy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
+  <depend>message_runtime</depend>
+
+  <export/>
+</package>

@@ -1,0 +1,10 @@
+<launch>
+  <arg name="autoload_package_path" default="" />
+  <arg name="resolution" default="0.2" />
+
+  <node pkg="jie_octomap" type="map_package_manager.py" name="map_package_manager" output="screen">
+    <param name="autoload_package_path" value="$(arg autoload_package_path)" />
+    <param name="resolution" value="$(arg resolution)" />
+  </node>
+  <node pkg="jie_octomap" type="map_viewer_gui.py" name="map_viewer_gui" output="screen" />
+</launch>
